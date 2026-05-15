@@ -1059,6 +1059,56 @@ function EinstellungenTab({aquarium,session,params,setParams,onUpdateAquarium}) 
           <SalifertEditor param={param} updateParam={up}/>
         </>}
         <Btn color="#00d4ff" onClick={saveParams}>{msg||"Parameter speichern"}</Btn>
+
+        {/* Schnellvorlagen */}
+        <Card>
+          <Sect>⚡ Schnell hinzufügen</Sect>
+          <div style={{fontSize:12,color:"var(--muted)",marginBottom:8}}>Vorgefertigte Parameter – direkt einsatzbereit</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[
+              {id:"PH",  label:"pH",       unit:"pH",   target:8.2,  mlPer100L:0,   pump:1, color:"#ffe600", min:7.8, max:8.6,  tolOkLow:8.1,  tolOkHigh:8.3,  tolWarnLow:8.0,  tolWarnHigh:8.4,  maxDayMl:0,   maxDoseMl:0,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"NO3", label:"Nitrat",   unit:"mg/L", target:5,    mlPer100L:0,   pump:1, color:"#ff6b9d", min:0,   max:25,   tolOkLow:1,    tolOkHigh:10,   tolWarnLow:0,    tolWarnHigh:20,   maxDayMl:0,   maxDoseMl:0,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"PO4", label:"Phosphat", unit:"mg/L", target:0.05, mlPer100L:0,   pump:1, color:"#4ade80", min:0,   max:0.3,  tolOkLow:0.02, tolOkHigh:0.08, tolWarnLow:0,    tolWarnHigh:0.15, maxDayMl:0,   maxDoseMl:0,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"SR",  label:"Strontium",unit:"mg/L", target:8,    mlPer100L:0.5, pump:1, color:"#a78bfa", min:4,   max:15,   tolOkLow:6,    tolOkHigh:10,   tolWarnLow:4,    tolWarnHigh:12,   maxDayMl:50,  maxDoseMl:10, stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"IOD", label:"Iod",      unit:"µg/L", target:60,   mlPer100L:0.2, pump:1, color:"#ff8c00", min:20,  max:100,  tolOkLow:50,   tolOkHigh:70,   tolWarnLow:30,   tolWarnHigh:80,   maxDayMl:20,  maxDoseMl:5,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"SAL", label:"Salzgehalt",unit:"",    target:1.025,mlPer100L:0,   pump:1, color:"#00d4ff", min:1.020,max:1.028,tolOkLow:1.023,tolOkHigh:1.026,tolWarnLow:1.022,tolWarnHigh:1.027,maxDayMl:0,   maxDoseMl:0,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+              {id:"TEMP",label:"Temperatur",unit:"°C",  target:25,   mlPer100L:0,   pump:1, color:"#ff4444", min:22,  max:29,   tolOkLow:24,   tolOkHigh:26,   tolWarnLow:23,   tolWarnHigh:27,   maxDayMl:0,   maxDoseMl:0,  stdDayMl:0, doseFrom:6, doseTo:22, enabled:true, salifert:[]},
+            ].filter(t=>!params.find(p=>p.label===t.label)).map(t=>(
+              <button key={t.id}
+                style={{display:"flex",alignItems:"center",gap:10,background:"rgba(0,0,0,.25)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",cursor:"pointer",width:"100%"}}
+                onClick={()=>{
+                  const np={...t,id:t.id+"_"+Date.now()};
+                  setParams(p=>[...p,np]);
+                  setSelParam(np.id);
+                }}
+              >
+                <div style={{width:10,height:10,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                <div style={{flex:1,textAlign:"left"}}>
+                  <div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,color:t.color}}>{t.label}</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>Ziel: {t.target} {t.unit}{t.tolOkLow?` · OK: ${t.tolOkLow}–${t.tolOkHigh}`:""}</div>
+                </div>
+                <span style={{color:"var(--cyan)",fontSize:18}}>+</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        <Btn color="#00ffb3" onClick={()=>{
+          const id="P"+Date.now();
+          setParams(p=>[...p,{id,label:"Neuer Parameter",unit:"mg/L",target:0,mlPer100L:1,pump:1,
+            color:"#00d4ff",maxDayMl:100,maxDoseMl:10,stdDayMl:0,min:0,max:100,
+            enabled:true,doseFrom:6,doseTo:22,tolOkLow:null,tolOkHigh:null,
+            tolWarnLow:null,tolWarnHigh:null,salifert:[]}]);
+          setSelParam(id);
+        }}>+ Leerer Parameter (manuell)</Btn>
+
+        {selParam&&params.find(p=>p.id===selParam)&&(
+          <Btn ghost onClick={()=>{
+            if(!confirm("Parameter wirklich löschen?")) return;
+            const updated=params.filter(p=>p.id!==selParam);
+            setParams(updated); setSelParam(updated[0]?.id||null);
+          }}>🗑 Diesen Parameter löschen</Btn>
+        )}
       </>}
 
       {sec==="ha"&&<>
