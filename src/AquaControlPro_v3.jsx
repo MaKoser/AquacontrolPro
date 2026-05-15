@@ -354,7 +354,7 @@ function MeasPopup({param,lastValue,volume,onSave,onClose}) {
         {lastValue!=null&&<div className="pop-last"><span style={{fontSize:12,color:"var(--muted)"}}>Letzter Wert</span><span style={{fontFamily:"var(--fm)",fontSize:18,fontWeight:700,color:param.color}}>{lastValue} {param.unit}</span></div>}
         {hs&&(
           <div className="mode-row">
-            <button className={`mode-btn ${mode==="salifert"?"mode-on":""}`} style={mode==="salifert"?{"--mc":param.color}:{}} onClick={()=>setMode("salifert")}>💉 Salifert</button>
+            <button className={`mode-btn ${mode==="salifert"?"mode-on":""}`} style={mode==="salifert"?{"--mc":param.color}:{}} onClick={()=>setMode("salifert")}>💉 Testkit</button>
             <button className={`mode-btn ${mode==="direct"?"mode-on":""}`} style={mode==="direct"?{"--mc":param.color}:{}} onClick={()=>setMode("direct")}>✏ Direkteingabe</button>
           </div>
         )}
@@ -795,25 +795,26 @@ function PhotoRecognizer({onAdd, onClose}) {
   const [result, setResult] = useState(null);
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState(null);
-  const camRef = useRef();
-  const galRef = useRef();
 
   const handleFile = async(file) => {
     if (!file?.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url); setPhase("analyzing"); setError(null);
+    setPreview(URL.createObjectURL(file));
+    setPhase("analyzing"); setError(null);
     const reader = new FileReader();
     reader.onload = async(ev) => {
       const base64 = ev.target.result.split(",")[1];
       const res = await recognizeAnimal(base64, file.type);
-      if (!res?.kandidaten?.length) { setError("Tier nicht erkannt – klareres Foto versuchen"); setPhase("select"); return; }
+      if (!res?.kandidaten?.length) {
+        setError("Tier nicht erkannt – klareres Foto versuchen");
+        setPhase("select"); return;
+      }
       setResult(res); setSelected(res.kandidaten[0]); setPhase("results");
     };
     reader.readAsDataURL(file);
   };
 
-  const confirm = () => {
-    if (!selected) return;
+  const doConfirm = () => {
+    if (!selected || !preview) return;
     const img = new Image();
     img.onload = () => {
       const c = document.createElement("canvas");
@@ -829,32 +830,45 @@ function PhotoRecognizer({onAdd, onClose}) {
   };
 
   const CC = k => k>=85?"#00ffb3":k>=60?"#ffe600":"#ff8c00";
+  const lblStyle = {display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"15px",borderRadius:14,cursor:"pointer",fontFamily:"var(--fm)",fontSize:14,fontWeight:700};
 
   return (
     <div className="popup-overlay" onClick={onClose}>
       <div className="popup-box" onClick={e=>e.stopPropagation()}>
         <div className="popup-hdr" style={{borderBottomColor:"rgba(0,212,255,.2)"}}>
           <div className="pop-dot" style={{background:"#00d4ff"}}/>
-          <div><div className="pop-title" style={{color:"#00d4ff"}}>📸 Tier fotografieren</div><div className="pop-sub">KI erkennt die Art automatisch</div></div>
+          <div><div className="pop-title" style={{color:"#00d4ff"}}>📸 Tier fotografieren</div>
+          <div className="pop-sub">KI erkennt die Art automatisch</div></div>
           <button className="pop-close" onClick={onClose}>✕</button>
         </div>
 
         {phase==="select"&&(
           <div style={{padding:20,display:"flex",flexDirection:"column",gap:12}}>
             {error&&<div style={{background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.25)",borderRadius:12,padding:12,fontSize:13,color:"#ff4444",textAlign:"center"}}>{error}</div>}
-            {preview&&<img src={preview} style={{width:"100%",maxHeight:200,objectFit:"cover",borderRadius:14,border:"1px solid var(--border)"}} alt=""/>}
-            <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
-            <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
-            <Btn color="#00d4ff" onClick={()=>camRef.current.click()}>📷 Foto aufnehmen</Btn>
-            <button style={{width:"100%",padding:14,borderRadius:14,border:"2px solid rgba(255,255,255,.18)",background:"rgba(255,255,255,.05)",color:"#b0ccd8",fontFamily:"var(--fm)",fontSize:13,fontWeight:700,cursor:"pointer"}} onClick={()=>galRef.current.click()}>🖼 Aus Galerie wählen</button>
-            <div style={{fontSize:12,color:"var(--muted)",textAlign:"center"}}>💡 Gut beleuchtetes, scharfes Foto direkt auf das Tier</div>
+            {preview&&<img src={preview} style={{width:"100%",maxHeight:200,objectFit:"cover",borderRadius:14}} alt=""/>}
+
+            {/* Label-wrap – funktioniert auf Android ohne .click() */}
+            <label style={{...lblStyle, background:"var(--cyan)", color:"#000"}}>
+              📷 Foto aufnehmen
+              <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
+            </label>
+            <label style={{...lblStyle, background:"rgba(255,255,255,.07)", color:"#b0ccd8", border:"2px solid rgba(255,255,255,.18)"}}>
+              🖼 Aus Galerie wählen
+              <input type="file" accept="image/*" style={{display:"none"}}
+                onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
+            </label>
+            <div style={{fontSize:12,color:"var(--muted)",textAlign:"center",lineHeight:1.6}}>
+              💡 Gut beleuchtetes, scharfes Foto direkt auf das Tier
+            </div>
           </div>
         )}
 
         {phase==="analyzing"&&(
           <div style={{padding:32,display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
             {preview&&<img src={preview} style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:14}} alt=""/>}
-            <Spin/><div style={{fontFamily:"var(--fm)",fontSize:14,color:"var(--cyan)"}}>KI analysiert…</div>
+            <Spin/>
+            <div style={{fontFamily:"var(--fm)",fontSize:14,color:"var(--cyan)"}}>KI analysiert das Foto…</div>
             <div style={{fontSize:12,color:"var(--muted)"}}>Suche in Meerwasser-Datenbank</div>
           </div>
         )}
@@ -862,33 +876,46 @@ function PhotoRecognizer({onAdd, onClose}) {
         {phase==="results"&&result&&(
           <div style={{padding:"12px 20px",display:"flex",flexDirection:"column",gap:10}}>
             {preview&&<img src={preview} style={{width:"100%",maxHeight:140,objectFit:"cover",borderRadius:12,border:"1px solid var(--border)"}} alt=""/>}
-            {result.sicher&&<div style={{background:"rgba(0,255,179,.1)",border:"1px solid rgba(0,255,179,.25)",borderRadius:20,padding:"6px 16px",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,color:"#00ffb3",textAlign:"center"}}>✓ Sicher erkannt</div>}
-            {!result.sicher&&<div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,textAlign:"center"}}>Welches Tier ist das?</div>}
+            {result.sicher
+              ? <div style={{background:"rgba(0,255,179,.1)",border:"1px solid rgba(0,255,179,.25)",borderRadius:20,padding:"6px 16px",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,color:"#00ffb3",textAlign:"center"}}>✓ Sicher erkannt</div>
+              : <div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,textAlign:"center",padding:"4px 0"}}>Welches Tier ist das? Bitte auswählen:</div>
+            }
             {result.kandidaten.map((k,i)=>(
-              <div key={i} style={{background:selected===k?"rgba(0,0,0,.35)":"rgba(0,0,0,.2)",border:`2px solid ${selected===k?(k.color||"#00d4ff"):"rgba(255,255,255,.1)"}`,borderRadius:16,padding:14,cursor:"pointer",transition:"all .2s"}} onClick={()=>setSelected(k)}>
+              <div key={i}
+                style={{background:selected===k?"rgba(0,0,0,.35)":"rgba(0,0,0,.2)",border:`2px solid ${selected===k?(k.color||"#00d4ff"):"rgba(255,255,255,.1)"}`,borderRadius:16,padding:14,cursor:"pointer"}}
+                onClick={()=>setSelected(k)}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                  <span style={{fontSize:32}}>{k.emoji}</span>
-                  <div style={{flex:1}}>
+                  <span style={{fontSize:32,flexShrink:0}}>{k.emoji}</span>
+                  <div style={{flex:1,minWidth:0}}>
                     <div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,fontStyle:"italic",color:k.color||"#00d4ff"}}>{k.wissenschaftlichName}</div>
-                    <div style={{fontSize:12,color:"var(--muted)"}}>{k.deutscherName} · {k.typ}</div>
+                    <div style={{fontSize:12,color:"var(--muted)"}}>{k.deutscherName} · {k.typ} · {k.care}</div>
                   </div>
-                  <div style={{textAlign:"right"}}>
+                  <div style={{textAlign:"right",flexShrink:0}}>
                     <div style={{fontFamily:"var(--fm)",fontSize:20,fontWeight:700,color:CC(k.konfidenz)}}>{k.konfidenz}%</div>
-                    {selected===k&&<div style={{fontSize:12,color:"#00ffb3"}}>✓</div>}
+                    <div style={{fontSize:10,color:CC(k.konfidenz)}}>{k.konfidenz>=85?"Sicher":k.konfidenz>=60?"Wahrsch.":"Möglich"}</div>
+                    {selected===k&&<div style={{fontSize:14,color:"#00ffb3",fontWeight:700}}>✓</div>}
                   </div>
                 </div>
-                {k.merkmale&&<div style={{fontSize:11,color:"var(--muted)",borderTop:"1px solid rgba(255,255,255,.06)",paddingTop:6}}>{k.merkmale}</div>}
-                <div style={{height:3,background:"rgba(255,255,255,.06)",borderRadius:2,marginTop:8}}><div style={{height:"100%",width:`${k.konfidenz}%`,background:CC(k.konfidenz),borderRadius:2}}/></div>
+                {k.merkmale&&<div style={{fontSize:11,color:"var(--muted)",borderTop:"1px solid rgba(255,255,255,.06)",paddingTop:6,lineHeight:1.5}}>🔍 {k.merkmale}</div>}
+                <div style={{height:3,background:"rgba(255,255,255,.06)",borderRadius:2,marginTop:8}}>
+                  <div style={{height:"100%",width:`${k.konfidenz}%`,background:CC(k.konfidenz),borderRadius:2}}/>
+                </div>
               </div>
             ))}
-            <button style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:10,color:"var(--muted)",fontFamily:"var(--fm)",fontSize:12,padding:10,cursor:"pointer"}} onClick={()=>{setPhase("select");setResult(null);setSelected(null);}}>↩ Anderes Foto</button>
+            <button style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:10,color:"var(--muted)",fontFamily:"var(--fm)",fontSize:12,padding:10,cursor:"pointer",width:"100%"}}
+              onClick={()=>{setPhase("select");setResult(null);setSelected(null);}}>
+              ↩ Anderes Foto verwenden
+            </button>
           </div>
         )}
 
         {phase==="results"&&(
           <div className="pop-actions">
             <button className="pop-cancel" onClick={onClose}>Abbrechen</button>
-            <button className="pop-save" style={{background:selected?.color||"#00d4ff",opacity:selected?1:0.4}} disabled={!selected} onClick={confirm}>{selected?.emoji} Zum Besatz hinzufügen</button>
+            <button className="pop-save" style={{background:selected?.color||"#00d4ff",opacity:selected?1:0.4}}
+              disabled={!selected} onClick={doConfirm}>
+              {selected?.emoji||"🐠"} Zum Besatz hinzufügen
+            </button>
           </div>
         )}
       </div>
@@ -1050,7 +1077,7 @@ function BesatzTab({aquarium,session}) {
 }
 
 // ─── SALIFERT EDITOR ─────────────────────────────────────────────────────────
-function SalifertEditor({param, updateParam}) {
+function TestkitEditor({param, updateParam}) {
   const [newMl, setNewMl] = useState("");
   const [newVal, setNewVal] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -1095,7 +1122,7 @@ function SalifertEditor({param, updateParam}) {
   return (
     <Card>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <Sect color={param.color}>💉 Testkit-Umrechnung (Salifert)</Sect>
+        <Sect color={param.color}>💉 Testkit-Umrechnung</Sect>
         <button
           style={{background:"none",border:"none",color:"var(--cyan)",fontFamily:"var(--fm)",fontSize:11,cursor:"pointer"}}
           onClick={()=>setExpanded(e=>!e)}
@@ -1112,7 +1139,7 @@ function SalifertEditor({param, updateParam}) {
         <button
           style={{background:"rgba(0,212,255,.1)",border:"1px solid rgba(0,212,255,.25)",borderRadius:10,color:"var(--cyan)",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,padding:"10px 14px",cursor:"pointer",width:"100%"}}
           onClick={importSalifertKH}
-        >⬇ Salifert KH Tabelle importieren (Standard)</button>
+        >⬇ Salifert KH Standard-Tabelle importieren</button>
       )}
 
       {/* Neue Zeile hinzufügen */}
@@ -1257,7 +1284,7 @@ function EinstellungenTab({aquarium,session,params,setParams,onUpdateAquarium}) 
             </div>
           </Card>
 
-          <SalifertEditor param={param} updateParam={up}/>
+          <TestkitEditor param={param} updateParam={up}/>
         </>}
         <Btn color="#00d4ff" onClick={saveParams}>{msg||"Parameter speichern"}</Btn>
 
