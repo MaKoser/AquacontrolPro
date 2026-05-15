@@ -138,9 +138,9 @@ async function fetchSpeciesInfo(name) {
 Antworte NUR mit JSON ohne Markdown:
 {"wissenschaftlichName":"...","deutscherName":"...","familie":"...","herkunft":"...","groesse":"...","beckengroesse":"...","temperatur":"...","salzgehalt":"...","ph":"...","kh":"...","licht":"Niedrig|Mittel|Hoch|Sehr hoch","stroemung":"Niedrig|Mittel|Hoch","ernaehrung":"...","schwierigkeitsgrad":"Anfänger|Fortgeschritten|Experte","vergesellschaftung":"...","besonderheiten":"...","pflegehinweise":"..."}`;
   try {
-    const r = await fetch("/api/claude", {
+    const r = await fetch("/.netlify/functions/claude", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1200, messages:[{role:"user",content:prompt}] }),
+      body: JSON.stringify({ model:"claude-sonnet-4-5-20251001", max_tokens:1200, messages:[{role:"user",content:prompt}] }),
     });
     const d = await r.json();
     const txt = (d.content||[]).map(c=>c.text||"").join("").replace(/```json|```/g,"").trim();
@@ -1126,11 +1126,11 @@ Wichtig:
 - Emoji soll zum Tier passen (🐠🐡🦈 für Fische, 🪸🌊🌺 für Korallen, 🦐🐚🦀 für Wirbellose)`;
 
   try {
-    const r = await fetch("/api/claude", {
+    const r = await fetch("/.netlify/functions/claude", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-5-20251001",
         max_tokens: 1000,
         messages: [{
           role: "user",
@@ -1391,11 +1391,11 @@ async function fetchWaterRecommendation(besatzList) {
   if (!besatzList.length) return null;
   const names = besatzList.map(b=>b.name).slice(0,8).join(", ");
   try {
-    const r = await fetch("/api/claude", {
+    const r = await fetch("/.netlify/functions/claude", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        model:"claude-sonnet-4-20250514",
+        model:"claude-sonnet-4-5-20251001",
         max_tokens:1200,
         system:"Du bist ein Meerwasseraquaristik-Experte. Antworte ausschließlich mit validem JSON, ohne Markdown-Formatierung, ohne Erklärungen davor oder danach.",
         messages:[{
