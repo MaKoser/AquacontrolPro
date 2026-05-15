@@ -753,6 +753,193 @@ function DosierungTab({aquarium,session,params}) {
   );
 }
 
+// ─── KI: FOTO-ERKENNUNG ──────────────────────────────────────────────────────
+async function recognizeAnimal(base64, mime) {
+  const txt = await claudeCall(
+    [{role:"user", content:[
+      {type:"image", source:{type:"base64", media_type:mime, data:base64}},
+      {type:"text", text:`Analysiere dieses Meerwasseraquarium-Tier. Antworte NUR mit JSON (kein Markdown):
+{"sicher":true/false,"kandidaten":[{"wissenschaftlichName":"...","deutscherName":"...","gruppe":"fische|korallen|wirbellose","typ":"...","emoji":"...","color":"#hexcode","konfidenz":95,"merkmale":"...","care":"★☆☆"}],"bildqualitaet":"gut|mittel|schlecht","hinweis":""}`}
+    ]}],
+    "Du bist ein Experte für Meerwasseraquaristik. Antworte ausschließlich mit validem JSON.",
+    800
+  );
+  if (!txt) return null;
+  try {
+    const m = txt.match(/\{[\s\S]*\}/);
+    return m ? JSON.parse(m[0]) : null;
+  } catch { return null; }
+}
+
+async function getWaterRecommendation(animals) {
+  if (!animals.length) return null;
+  const list = animals.map(a=>a.name).slice(0,10).join(", ");
+  const txt = await claudeCall(
+    [{role:"user", content:`Optimale Wasserwerte für Meerwasseraquarium mit: ${list}. JSON-Format:
+{"zusammenfassung":"...","werte":[{"parameter":"Temperatur","ideal":"24-26 °C","hinweis":"..."},{"parameter":"Salzgehalt","ideal":"1.023-1.025","hinweis":"..."},{"parameter":"pH","ideal":"8.1-8.3","hinweis":"..."},{"parameter":"KH","ideal":"7-9 °dKH","hinweis":"..."},{"parameter":"Calcium","ideal":"400-440 mg/L","hinweis":"..."},{"parameter":"Magnesium","ideal":"1250-1350 mg/L","hinweis":"..."},{"parameter":"Nitrat","ideal":"...","hinweis":"..."},{"parameter":"Phosphat","ideal":"...","hinweis":"..."}],"besonderheiten":"...","konflikte":""}`}],
+    "Du bist Meerwasseraquaristik-Experte. Antworte nur mit validem JSON ohne Markdown.",
+    1000
+  );
+  if (!txt) return null;
+  try {
+    const m = txt.match(/\{[\s\S]*\}/);
+    const p = m ? JSON.parse(m[0]) : null;
+    return p?.werte?.length ? p : null;
+  } catch { return null; }
+}
+
+// ─── FOTO RECOGNIZER ─────────────────────────────────────────────────────────
+function PhotoRecognizer({onAdd, onClose}) {
+  const [phase, setPhase] = useState("select");
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [error, setError] = useState(null);
+  const camRef = useRef();
+  const galRef = useRef();
+
+  const handleFile = async(file) => {
+    if (!file?.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setPreview(url); setPhase("analyzing"); setError(null);
+    const reader = new FileReader();
+    reader.onload = async(ev) => {
+      const base64 = ev.target.result.split(",")[1];
+      const res = await recognizeAnimal(base64, file.type);
+      if (!res?.kandidaten?.length) { setError("Tier nicht erkannt – klareres Foto versuchen"); setPhase("select"); return; }
+      setResult(res); setSelected(res.kandidaten[0]); setPhase("results");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const confirm = () => {
+    if (!selected) return;
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      const r = Math.min(1, 400/img.width);
+      c.width=img.width*r; c.height=img.height*r;
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      onAdd({name:selected.wissenschaftlichName, type:selected.typ, group_id:selected.gruppe,
+        emoji:selected.emoji, color:selected.color||"#00d4ff", care:selected.care||"★☆☆",
+        note:selected.merkmale||"", count:1, photo:c.toDataURL("image/jpeg",0.7)});
+      onClose();
+    };
+    img.src = preview;
+  };
+
+  const CC = k => k>=85?"#00ffb3":k>=60?"#ffe600":"#ff8c00";
+
+  return (
+    <div className="popup-overlay" onClick={onClose}>
+      <div className="popup-box" onClick={e=>e.stopPropagation()}>
+        <div className="popup-hdr" style={{borderBottomColor:"rgba(0,212,255,.2)"}}>
+          <div className="pop-dot" style={{background:"#00d4ff"}}/>
+          <div><div className="pop-title" style={{color:"#00d4ff"}}>📸 Tier fotografieren</div><div className="pop-sub">KI erkennt die Art automatisch</div></div>
+          <button className="pop-close" onClick={onClose}>✕</button>
+        </div>
+
+        {phase==="select"&&(
+          <div style={{padding:20,display:"flex",flexDirection:"column",gap:12}}>
+            {error&&<div style={{background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.25)",borderRadius:12,padding:12,fontSize:13,color:"#ff4444",textAlign:"center"}}>{error}</div>}
+            {preview&&<img src={preview} style={{width:"100%",maxHeight:200,objectFit:"cover",borderRadius:14,border:"1px solid var(--border)"}} alt=""/>}
+            <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            <Btn color="#00d4ff" onClick={()=>camRef.current.click()}>📷 Foto aufnehmen</Btn>
+            <button style={{width:"100%",padding:14,borderRadius:14,border:"2px solid rgba(255,255,255,.18)",background:"rgba(255,255,255,.05)",color:"#b0ccd8",fontFamily:"var(--fm)",fontSize:13,fontWeight:700,cursor:"pointer"}} onClick={()=>galRef.current.click()}>🖼 Aus Galerie wählen</button>
+            <div style={{fontSize:12,color:"var(--muted)",textAlign:"center"}}>💡 Gut beleuchtetes, scharfes Foto direkt auf das Tier</div>
+          </div>
+        )}
+
+        {phase==="analyzing"&&(
+          <div style={{padding:32,display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+            {preview&&<img src={preview} style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:14}} alt=""/>}
+            <Spin/><div style={{fontFamily:"var(--fm)",fontSize:14,color:"var(--cyan)"}}>KI analysiert…</div>
+            <div style={{fontSize:12,color:"var(--muted)"}}>Suche in Meerwasser-Datenbank</div>
+          </div>
+        )}
+
+        {phase==="results"&&result&&(
+          <div style={{padding:"12px 20px",display:"flex",flexDirection:"column",gap:10}}>
+            {preview&&<img src={preview} style={{width:"100%",maxHeight:140,objectFit:"cover",borderRadius:12,border:"1px solid var(--border)"}} alt=""/>}
+            {result.sicher&&<div style={{background:"rgba(0,255,179,.1)",border:"1px solid rgba(0,255,179,.25)",borderRadius:20,padding:"6px 16px",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,color:"#00ffb3",textAlign:"center"}}>✓ Sicher erkannt</div>}
+            {!result.sicher&&<div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,textAlign:"center"}}>Welches Tier ist das?</div>}
+            {result.kandidaten.map((k,i)=>(
+              <div key={i} style={{background:selected===k?"rgba(0,0,0,.35)":"rgba(0,0,0,.2)",border:`2px solid ${selected===k?(k.color||"#00d4ff"):"rgba(255,255,255,.1)"}`,borderRadius:16,padding:14,cursor:"pointer",transition:"all .2s"}} onClick={()=>setSelected(k)}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                  <span style={{fontSize:32}}>{k.emoji}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,fontStyle:"italic",color:k.color||"#00d4ff"}}>{k.wissenschaftlichName}</div>
+                    <div style={{fontSize:12,color:"var(--muted)"}}>{k.deutscherName} · {k.typ}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"var(--fm)",fontSize:20,fontWeight:700,color:CC(k.konfidenz)}}>{k.konfidenz}%</div>
+                    {selected===k&&<div style={{fontSize:12,color:"#00ffb3"}}>✓</div>}
+                  </div>
+                </div>
+                {k.merkmale&&<div style={{fontSize:11,color:"var(--muted)",borderTop:"1px solid rgba(255,255,255,.06)",paddingTop:6}}>{k.merkmale}</div>}
+                <div style={{height:3,background:"rgba(255,255,255,.06)",borderRadius:2,marginTop:8}}><div style={{height:"100%",width:`${k.konfidenz}%`,background:CC(k.konfidenz),borderRadius:2}}/></div>
+              </div>
+            ))}
+            <button style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:10,color:"var(--muted)",fontFamily:"var(--fm)",fontSize:12,padding:10,cursor:"pointer"}} onClick={()=>{setPhase("select");setResult(null);setSelected(null);}}>↩ Anderes Foto</button>
+          </div>
+        )}
+
+        {phase==="results"&&(
+          <div className="pop-actions">
+            <button className="pop-cancel" onClick={onClose}>Abbrechen</button>
+            <button className="pop-save" style={{background:selected?.color||"#00d4ff",opacity:selected?1:0.4}} disabled={!selected} onClick={confirm}>{selected?.emoji} Zum Besatz hinzufügen</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── WASSEREMPFEHLUNG ─────────────────────────────────────────────────────────
+function WasserempfehlungCard({animals}) {
+  const [rec, setRec] = useState(()=>{try{return JSON.parse(localStorage.getItem("waterRec"))||null;}catch{return null;}});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  if (!animals.length) return null;
+
+  const load = async() => {
+    setLoading(true); setError(null);
+    const r = await getWaterRecommendation(animals);
+    if (r) { setRec(r); localStorage.setItem("waterRec", JSON.stringify(r)); }
+    else setError("Empfehlung konnte nicht geladen werden");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{background:"rgba(0,0,0,.2)",border:"1px solid rgba(0,212,255,.12)",borderRadius:18,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <span style={{fontFamily:"var(--fm)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:"var(--cyan)"}}>💧 Wasserempfehlung für deinen Besatz</span>
+        <button style={{background:"rgba(0,212,255,.1)",border:"1px solid rgba(0,212,255,.25)",borderRadius:20,color:"var(--cyan)",fontFamily:"var(--fm)",fontSize:11,fontWeight:700,padding:"6px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={load} disabled={loading}>
+          {loading?<><Spin/> Lädt…</>:rec?"↻ Neu laden":"Empfehlung laden"}
+        </button>
+      </div>
+      {!rec&&!loading&&!error&&<div style={{fontSize:12,color:"var(--muted)"}}>KI analysiert {animals.length} Tiere und berechnet optimale Kompromisswerte</div>}
+      {error&&<div style={{fontSize:12,color:"#ff4444"}}>{error}</div>}
+      {rec&&<>
+        {rec.zusammenfassung&&<div style={{fontSize:13,lineHeight:1.6,padding:"10px 12px",background:"rgba(0,212,255,.06)",borderRadius:10,borderLeft:"3px solid var(--cyan)"}}>{rec.zusammenfassung}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+          {rec.werte?.map((w,i)=>(
+            <div key={i} style={{background:"rgba(0,0,0,.25)",borderRadius:10,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:".05em",marginBottom:3}}>{w.parameter}</div>
+              <div style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,color:"var(--cyan)"}}>{w.ideal}</div>
+              {w.hinweis&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3,lineHeight:1.4}}>{w.hinweis}</div>}
+            </div>
+          ))}
+        </div>
+        {rec.besonderheiten&&<div style={{fontSize:12,color:"var(--text)",lineHeight:1.6,padding:"10px 12px",background:"rgba(255,255,255,.04)",borderRadius:10}}><span style={{color:"var(--cyan)"}}>ℹ </span>{rec.besonderheiten}</div>}
+        {rec.konflikte&&rec.konflikte.length>3&&<div style={{fontSize:12,color:"#ff8c00",lineHeight:1.6,padding:"10px 12px",background:"rgba(255,140,0,.08)",borderRadius:10,border:"1px solid rgba(255,140,0,.2)"}}><span>⚠ </span>{rec.konflikte}</div>}
+        <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",fontStyle:"italic"}}>Claude KI · ohne Gewähr · {animals.length} Tiere analysiert</div>
+      </>}
+    </div>
+  );
+}
+
 // ─── BESATZ TAB ───────────────────────────────────────────────────────────────
 function BesatzTab({aquarium,session}) {
   const [animals,setAnimals]=useState([]);
@@ -760,6 +947,7 @@ function BesatzTab({aquarium,session}) {
   const [activeGroup,setActiveGroup]=useState("all");
   const [search,setSearch]=useState("");
   const [adding,setAdding]=useState(false);
+  const [showCamera,setShowCamera]=useState(false);
   const [form,setForm]=useState({name:"",type:"",care:"★☆☆",note:"",emoji:"🪸",color:"#00d4ff",group_id:"korallen",count:1});
   const jwt=session.access_token;
 
@@ -795,6 +983,7 @@ function BesatzTab({aquarium,session}) {
   const counts=BESATZ_GROUPS.reduce((acc,g)=>({...acc,[g.id]:animals.filter(a=>a.group_id===g.id).length}),{});
 
   return (
+    <>
     <div className="tab-scroll">
       <div className="group-chips">
         <button className={`grp-chip ${activeGroup==="all"?"grp-active":""}`} onClick={()=>setActiveGroup("all")}>Alle <span className="grp-cnt">{animals.length}</span></button>
@@ -805,7 +994,13 @@ function BesatzTab({aquarium,session}) {
         ))}
       </div>
       <input className="search-inp" placeholder="🔍 Suchen…" value={search} onChange={e=>setSearch(e.target.value)}/>
-      <Btn color="#00d4ff" onClick={()=>setAdding(a=>!a)}>{adding?"✕ Abbrechen":"+ Tier hinzufügen"}</Btn>
+
+      {/* Aktions-Buttons */}
+      <div style={{display:"flex",gap:8}}>
+        <Btn color="#00d4ff" onClick={()=>setShowCamera(true)} className="flex1">📸 Tier fotografieren</Btn>
+        <button style={{background:"rgba(255,255,255,.07)",border:"2px solid rgba(255,255,255,.18)",borderRadius:14,color:"#b0ccd8",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,padding:"0 16px",cursor:"pointer",flexShrink:0}} onClick={()=>setAdding(a=>!a)}>{adding?"✕":"+ Manuell"}</button>
+      </div>
+
       {adding&&(
         <Card>
           <div className="pe-grid">
@@ -820,6 +1015,7 @@ function BesatzTab({aquarium,session}) {
           <Btn color="#00ffb3" onClick={addManual}>Speichern</Btn>
         </Card>
       )}
+
       {loading&&<Card><div className="loading-row"><Spin/><span>Lade...</span></div></Card>}
       {!loading&&BESATZ_GROUPS.filter(g=>activeGroup==="all"||g.id===activeGroup).map(grp=>{
         const items=filtered.filter(a=>a.group_id===grp.id);
@@ -844,7 +1040,12 @@ function BesatzTab({aquarium,session}) {
         );
       })}
       {!loading&&!filtered.length&&<div className="empty-state"><div>🐠</div><p>Keine Tiere</p></div>}
+
+      {/* Wasserempfehlung */}
+      {!loading&&animals.length>0&&<WasserempfehlungCard animals={animals}/>}
     </div>
+    {showCamera&&<PhotoRecognizer onAdd={addAnimal} onClose={()=>setShowCamera(false)}/>}
+    </>
   );
 }
 
