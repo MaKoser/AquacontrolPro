@@ -182,7 +182,12 @@ function AquariumSelector({session,onSelect,onGlobal,onLogout}) {
       user_id:session.user.id,params:DEFAULT_PARAMS,
       esp_ip:"192.168.1.100",ml_per_ms:0.01667,ha_entities:[]
     },null,jwt);
-    if(Array.isArray(r)&&r[0]){setCreating(false);setForm({name:"",volume:300,description:""});load();}
+    console.log("Create result:", r);
+    if(Array.isArray(r)&&r[0]){
+      setCreating(false);setForm({name:"",volume:300,description:""});load();
+    } else {
+      alert("Fehler: " + JSON.stringify(r));
+    }
   };
 
   const del=async(e,id)=>{
@@ -411,11 +416,14 @@ function MessungTab({aquarium,session,params}) {
   const [measurements,setMeasurements]=useState([]);
   const [flash,setFlash]=useState(null);
   const [loading,setLoading]=useState(true);
+  const [subTab,setSubTab]=useState("aktuell"); // "aktuell" | "verlauf"
+  const [activeCharts,setActiveCharts]=useState(null); // null = alle
   const jwt=session.access_token;
   const enabled=params.filter(p=>p.enabled);
 
   useEffect(()=>{
-    dbCall("select","measurements",{order:"measured_at.desc",limit:200},{aquarium_id:aquarium.id},jwt)
+    setActiveCharts(enabled.map(p=>p.id));
+    dbCall("select","measurements",{order:"measured_at.desc",limit:300},{aquarium_id:aquarium.id},jwt)
       .then(d=>{setMeasurements(Array.isArray(d)?d:[]);setLoading(false);});
   },[aquarium.id]);
 
@@ -428,6 +436,11 @@ function MessungTab({aquarium,session,params}) {
     return m;
   },[measurements,enabled]);
 
+  const chartData=useMemo(()=>[...measurements].reverse().map(m=>({
+    ts:new Date(m.measured_at).getTime(),
+    ...Object.fromEntries(enabled.map(p=>[p.id,m.values?.[p.id]??null]))
+  })),[measurements,enabled]);
+
   const save=async(paramId,value,icpDate=null)=>{
     const entry={aquarium_id:aquarium.id,user_id:session.user.id,
       measured_at:icpDate?new Date(icpDate).toISOString():new Date().toISOString(),
@@ -439,12 +452,24 @@ function MessungTab({aquarium,session,params}) {
     }
   };
 
+  const CTT=({active:a,payload,label})=>{
+    if(!a||!payload?.length) return null;
+    return <div className="chart-tt"><div style={{fontSize:10,color:"var(--muted)",marginBottom:4}}>{new Date(label).toLocaleDateString("de-DE")}</div>{payload.map(p=>p.value!=null&&<div key={p.dataKey} style={{color:p.color,fontFamily:"var(--fm)",fontSize:11}}>{p.dataKey}: <b>{p.value}</b></div>)}</div>;
+  };
+
   if(loading) return <div className="tab-scroll"><Card><div className="loading-row"><Spin/><span>Lade...</span></div></Card></div>;
 
   return (
     <>
       <div className="tab-scroll">
-        {enabled.map(p=>{
+        {/* Sub-Tab Toggle */}
+        <div className="sub-tab-row">
+          <button className={`sub-tab ${subTab==="aktuell"?"sub-tab-on":""}`} onClick={()=>setSubTab("aktuell")}>📊 Messung</button>
+          <button className={`sub-tab ${subTab==="verlauf"?"sub-tab-on":""}`} onClick={()=>setSubTab("verlauf")}>📈 Verlauf</button>
+        </div>
+
+        {/* MESSUNG */}
+        {subTab==="aktuell" && enabled.map(p=>{
           const cur=lastValues[p.id];
           const st=getStatus(p,cur);
           const ok=st==="ok",warn=st==="warn";
@@ -467,56 +492,263 @@ function MessungTab({aquarium,session,params}) {
             </div>
           );
         })}
+
+        {/* VERLAUF */}
+        {subTab==="verlauf" && (<>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {enabled.map(p=>(
+              <button key={p.id} className={`toggle-chip ${(activeCharts||[]).includes(p.id)?"tc-on":""}`}
+                style={{"--c":p.color}}
+                onClick={()=>setActiveCharts(a=>(a||[]).includes(p.id)?(a||[]).filter(x=>x!==p.id):[...(a||[]),p.id])}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {!chartData.length&&<div className="empty-state"><div>📈</div><p>Noch keine Messwerte</p></div>}
+          {enabled.filter(p=>(activeCharts||[]).includes(p.id)).map(p=>(
+            <Card key={p.id}>
+              <div style={{fontFamily:"var(--fm)",fontSize:11,textTransform:"uppercase",letterSpacing:".07em",color:p.color,marginBottom:6}}>{p.label} <span style={{color:"#4a6472"}}>({p.unit})</span></div>
+              <ResponsiveContainer width="100%" height={170}>
+                <LineChart data={chartData} margin={{top:8,right:8,left:-20,bottom:0}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
+                  <XAxis dataKey="ts" tickFormatter={v=>new Date(v).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})} stroke="#444" tick={{fontSize:10}}/>
+                  <YAxis domain={[p.min,p.max]} stroke="#444" tick={{fontSize:10}}/>
+                  <Tooltip content={<CTT/>}/>
+                  <ReferenceLine y={p.target} stroke={p.color} strokeDasharray="4 4" opacity={0.4}/>
+                  <Line type="monotone" dataKey={p.id} stroke={p.color} strokeWidth={2.5} dot={{r:3,fill:p.color}} connectNulls/>
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          ))}
+        </>)}
       </div>
       {popup&&<MeasPopup param={popup} lastValue={lastValues[popup.id]} volume={aquarium.volume} onSave={save} onClose={()=>setPopup(null)}/>}
     </>
   );
 }
 
-// ─── VERLAUF TAB ──────────────────────────────────────────────────────────────
-function VerlaufTab({aquarium,session,params}) {
-  const [measurements,setMeasurements]=useState([]);
+// ─── DOSIERUNG TAB ────────────────────────────────────────────────────────────
+function DosierungTab({aquarium,session,params}) {
+  const [dayPlans,setDayPlans]=useState({});
+  const [todayDone,setTodayDone]=useState(()=>{
+    const s=JSON.parse(localStorage.getItem("todayDone_"+aquarium.id)||"{}");
+    return s?.date===new Date().toDateString()?(s.data||{}):{};
+  });
+  const [todayDosed,setTodayDosed]=useState(()=>{
+    const s=JSON.parse(localStorage.getItem("todayDosed_"+aquarium.id)||"{}");
+    return s?.date===new Date().toDateString()?(s.data||{}):{};
+  });
+  const [activeParam,setActiveParam]=useState(params.filter(p=>p.enabled)[0]?.id||null);
   const [loading,setLoading]=useState(true);
-  const [active,setActive]=useState(params.filter(p=>p.enabled).map(p=>p.id));
+  const [dosingId,setDosingId]=useState(null);
+  const [addingStep,setAddingStep]=useState(null);
+  const [newH,setNewH]=useState("8");
+  const [newMl,setNewMl]=useState("");
+  const [editStep,setEditStep]=useState(null);
   const jwt=session.access_token;
   const enabled=params.filter(p=>p.enabled);
+  const nowH=new Date().getHours();
 
+  // Lade Dosierpläne aus DB
   useEffect(()=>{
-    dbCall("select","measurements",{order:"measured_at.asc",limit:200},{aquarium_id:aquarium.id},jwt)
-      .then(d=>{setMeasurements(Array.isArray(d)?d:[]);setLoading(false);});
+    dbCall("select","dosing_plans",null,{aquarium_id:aquarium.id},jwt).then(d=>{
+      if(Array.isArray(d)){
+        const plans={};
+        d.forEach(p=>plans[p.param_id]=p);
+        setDayPlans(plans);
+      }
+      setLoading(false);
+    });
   },[aquarium.id]);
 
-  const chartData=useMemo(()=>measurements.map(m=>({ts:new Date(m.measured_at).getTime(),...Object.fromEntries(enabled.map(p=>[p.id,m.values?.[p.id]??null]))})),[measurements,enabled]);
-  const CTT=({active:a,payload,label})=>{
-    if(!a||!payload?.length) return null;
-    return <div className="chart-tt"><div style={{fontSize:10,color:"var(--muted)",marginBottom:4}}>{new Date(label).toLocaleDateString("de-DE")}</div>{payload.map(p=>p.value!=null&&<div key={p.dataKey} style={{color:p.color,fontFamily:"var(--fm)",fontSize:11}}>{p.dataKey}: <b>{p.value}</b></div>)}</div>;
+  const saveTodayDone=(td)=>{
+    setTodayDone(td);
+    localStorage.setItem("todayDone_"+aquarium.id,JSON.stringify({date:new Date().toDateString(),data:td}));
+  };
+
+  const saveTodayDosed=(td)=>{
+    setTodayDosed(td);
+    localStorage.setItem("todayDosed_"+aquarium.id,JSON.stringify({date:new Date().toDateString(),data:td}));
+  };
+
+  const savePlan=async(paramId,steps)=>{
+    const existing=dayPlans[paramId];
+    let r;
+    if(existing?.id){
+      r=await dbCall("update","dosing_plans",{steps},{id:existing.id},jwt);
+    } else {
+      r=await dbCall("insert","dosing_plans",{aquarium_id:aquarium.id,user_id:session.user.id,param_id:paramId,steps},null,jwt);
+    }
+    if(Array.isArray(r)&&r[0]){
+      setDayPlans(prev=>({...prev,[paramId]:r[0]}));
+    }
+  };
+
+  const generatePlan=async(param)=>{
+    const hours=[];
+    for(let h=0;h<24;h++){
+      const inW=param.doseFrom<=param.doseTo?h>=param.doseFrom&&h<param.doseTo:h>=param.doseFrom||h<param.doseTo;
+      if(inW) hours.push(h);
+    }
+    if(!hours.length) return;
+    const total=Math.max(param.stdDayMl||0,0);
+    if(total<=0){
+      // Leerer Plan – nur Standarddosis
+      alert("Bitte zuerst einen Messwert eingeben oder Standard-Tagesdosis setzen");
+      return;
+    }
+    const steps=[];
+    let rem=total, hi=0;
+    const interval=Math.max(1,Math.floor(hours.length/Math.ceil(total/param.maxDoseMl)));
+    while(rem>0.01&&hi<hours.length){
+      const ml=+Math.min(rem,param.maxDoseMl).toFixed(2);
+      steps.push({id:`${param.id}_${hours[hi]}_${Date.now()}`,hour:hours[hi],ml,status:"pending"});
+      rem-=ml; hi+=interval;
+      if(hi>=hours.length&&rem>0.01) hi=hours.length-1;
+    }
+    await savePlan(param.id,steps);
+    const td={...todayDone}; delete td[param.id]; saveTodayDone(td);
+  };
+
+  const updateStep=async(paramId,stepId,changes)=>{
+    const plan=dayPlans[paramId]; if(!plan) return;
+    const steps=plan.steps.map(s=>s.id===stepId?{...s,...changes}:s);
+    await savePlan(paramId,steps);
+  };
+
+  const deleteStep=async(paramId,stepId)=>{
+    const plan=dayPlans[paramId]; if(!plan) return;
+    await savePlan(paramId,plan.steps.filter(s=>s.id!==stepId));
+  };
+
+  const addStep=async(paramId)=>{
+    const h=parseInt(newH),ml=parseFloat(newMl);
+    if(isNaN(h)||isNaN(ml)||ml<=0) return;
+    const plan=dayPlans[paramId];
+    const steps=[...(plan?.steps||[]),{id:`${paramId}_${h}_${Date.now()}`,hour:h,ml:+ml.toFixed(2),status:"pending"}].sort((a,b)=>a.hour-b.hour);
+    await savePlan(paramId,steps);
+    setAddingStep(null);setNewMl("");
+  };
+
+  const executeDose=async(param,step)=>{
+    setDosingId(step.id);
+    const ms=Math.round(step.ml/(aquarium.ml_per_ms||0.01667));
+    try {
+      await fetch(`http://${aquarium.esp_ip}/dose?pump=${param.pump}&time=${ms}`,{signal:AbortSignal.timeout(5000)});
+    } catch(e){}
+    setDosingId(null);
+    const td={...todayDone,[param.id]:[...(todayDone[param.id]||[]),step.id]};
+    saveTodayDone(td);
+    const dosed={...todayDosed,[param.id]:(todayDosed[param.id]||0)+step.ml};
+    saveTodayDosed(dosed);
   };
 
   if(loading) return <div className="tab-scroll"><Card><div className="loading-row"><Spin/><span>Lade...</span></div></Card></div>;
 
   return (
     <div className="tab-scroll">
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {enabled.map(p=>(
-          <button key={p.id} className={`toggle-chip ${active.includes(p.id)?"tc-on":""}`} style={{"--c":p.color}} onClick={()=>setActive(a=>a.includes(p.id)?a.filter(x=>x!==p.id):[...a,p.id])}>{p.label}</button>
-        ))}
+      {/* Param Chips */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {enabled.map(p=>{
+          const plan=dayPlans[p.id];
+          const doneIds=todayDone[p.id]||[];
+          const pending=plan?.steps?.filter(s=>!doneIds.includes(s.id)&&s.status!=="paused").length||0;
+          return (
+            <button key={p.id} className={`param-chip ${activeParam===p.id?"param-chip-on":""}`}
+              style={{"--c":p.color}} onClick={()=>setActiveParam(p.id)}>
+              {p.label} {pending>0&&<span className="pc-badge">{pending}</span>}
+            </button>
+          );
+        })}
       </div>
-      {!chartData.length&&<div className="empty-state"><div>📈</div><p>Noch keine Messwerte</p></div>}
-      {enabled.filter(p=>active.includes(p.id)).map(p=>(
-        <Card key={p.id}>
-          <div style={{fontFamily:"var(--fm)",fontSize:11,textTransform:"uppercase",letterSpacing:".07em",color:p.color,marginBottom:6}}>{p.label} <span style={{color:"#4a6472"}}>({p.unit})</span></div>
-          <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={chartData} margin={{top:8,right:8,left:-20,bottom:0}}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-              <XAxis dataKey="ts" tickFormatter={v=>new Date(v).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})} stroke="#444" tick={{fontSize:10}}/>
-              <YAxis domain={[p.min,p.max]} stroke="#444" tick={{fontSize:10}}/>
-              <Tooltip content={<CTT/>}/>
-              <ReferenceLine y={p.target} stroke={p.color} strokeDasharray="4 4" opacity={0.4}/>
-              <Line type="monotone" dataKey={p.id} stroke={p.color} strokeWidth={2.5} dot={{r:3,fill:p.color}} connectNulls/>
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-      ))}
+
+      {/* Aktiver Plan */}
+      {enabled.filter(p=>p.id===activeParam).map(p=>{
+        const plan=dayPlans[p.id];
+        const dosed=todayDosed[p.id]||0;
+        const doneIds=todayDone[p.id]||[];
+        return (
+          <Card key={p.id}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <div className="mdot" style={{background:p.color}}/><span style={{fontFamily:"var(--fm)",fontSize:15,fontWeight:700,color:p.color}}>{p.label}</span>
+              <span style={{fontSize:11,color:"var(--muted)",marginLeft:"auto"}}>🕐 {String(p.doseFrom).padStart(2,"0")}–{String(p.doseTo).padStart(2,"0")} Uhr</span>
+            </div>
+
+            {/* Stats */}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              <div><div className="mlbl">Heute dosiert</div><div style={{fontFamily:"var(--fm)",fontSize:18,fontWeight:700,color:p.color}}>{dosed.toFixed(1)} ml</div></div>
+              <div><div className="mlbl">Max/Tag</div><div style={{fontFamily:"var(--fm)",fontSize:18,fontWeight:700}}>{p.maxDayMl} ml</div></div>
+              {p.stdDayMl>0&&<div><div className="mlbl">Standard</div><div style={{fontFamily:"var(--fm)",fontSize:18,fontWeight:700}}>{p.stdDayMl} ml</div></div>}
+            </div>
+
+            {/* Progress */}
+            <div className="mbar" style={{marginTop:4}}>
+              <div className="mbar-fill" style={{width:`${Math.min(100,(dosed/p.maxDayMl)*100)}%`,background:p.color}}/>
+            </div>
+
+            <Btn color={p.color} onClick={()=>generatePlan(p)}>{plan?"🔄 Plan neu generieren":"✨ Tagesplan erstellen"}</Btn>
+
+            {/* Steps */}
+            {plan?.steps?.length>0&&(
+              <div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontFamily:"var(--fm)",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)"}}>
+                    Tagesplan · {plan.steps.length} Vorgänge · täglich
+                  </span>
+                  <button className="step-add-btn" onClick={()=>setAddingStep(p.id)}>+ Hinzufügen</button>
+                </div>
+
+                {addingStep===p.id&&(
+                  <div style={{display:"flex",gap:6,alignItems:"center",padding:"8px",background:"rgba(0,0,0,.2)",borderRadius:10,marginBottom:8,flexWrap:"wrap"}}>
+                    <select className="sett-inp" style={{flex:1,minWidth:80}} value={newH} onChange={e=>setNewH(e.target.value)}>
+                      {Array.from({length:24},(_,i)=>i).map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}
+                    </select>
+                    <input type="number" step="0.5" placeholder="ml" className="sett-inp" style={{width:80}} value={newMl} onChange={e=>setNewMl(e.target.value)}/>
+                    <button style={{background:"var(--green)",border:"none",borderRadius:8,color:"#000",width:36,height:36,fontSize:16,cursor:"pointer",fontWeight:700}} onClick={()=>addStep(p.id)}>✓</button>
+                    <button style={{background:"rgba(255,68,68,.15)",border:"1px solid rgba(255,68,68,.3)",borderRadius:8,color:"#ff4444",width:36,height:36,fontSize:16,cursor:"pointer"}} onClick={()=>setAddingStep(null)}>✕</button>
+                  </div>
+                )}
+
+                {[...plan.steps].sort((a,b)=>a.hour-b.hour).map(step=>{
+                  const isDone=doneIds.includes(step.id);
+                  const isCur=step.hour===nowH;
+                  const isLoad=dosingId===step.id;
+                  const isEdit=editStep===step.id;
+                  return (
+                    <div key={step.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.04)",opacity:isDone?0.45:1}}>
+                      <span style={{fontFamily:"var(--fm)",fontSize:13,fontWeight:700,minWidth:44,color:isCur?"var(--cyan)":"var(--text)"}}>
+                        {String(step.hour).padStart(2,"0")}:00{isCur&&<span style={{fontSize:8,display:"block",color:"var(--cyan)"}}>JETZT</span>}
+                      </span>
+
+                      {isEdit?(
+                        <input type="number" step="0.5" autoFocus defaultValue={step.ml}
+                          style={{flex:1,background:"rgba(0,212,255,.1)",border:"1px solid var(--cyan)",borderRadius:6,color:"var(--cyan)",padding:"4px 8px",fontFamily:"var(--fm)",fontSize:15,fontWeight:700,width:70,outline:"none"}}
+                          onBlur={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)updateStep(p.id,step.id,{ml:+v.toFixed(2)});setEditStep(null);}}
+                          onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape")setEditStep(null);}}
+                        />
+                      ):(
+                        <span style={{flex:1,fontFamily:"var(--fm)",fontSize:15,fontWeight:700,cursor:"pointer",color:p.color}} onClick={()=>setEditStep(step.id)}>{step.ml} <span style={{fontSize:11,color:"var(--muted)",fontWeight:400}}>ml ✏</span></span>
+                      )}
+
+                      {isDone&&<span style={{fontSize:12,color:"var(--green)"}}>✓</span>}
+                      {step.status==="paused"&&<span style={{fontSize:12,color:"var(--yellow)"}}>⏸</span>}
+
+                      <div style={{display:"flex",gap:4}}>
+                        {!isDone&&<button style={{background:p.color,border:"none",borderRadius:8,color:"#000",padding:"5px 10px",fontFamily:"var(--fm)",fontSize:11,fontWeight:700,cursor:"pointer"}} onClick={()=>executeDose(p,step)} disabled={isLoad}>{isLoad?<Spin/>:`P${p.pump}`}</button>}
+                        <button style={{background:"rgba(255,255,255,.06)",border:"none",borderRadius:8,color:"var(--muted)",padding:"5px 8px",fontSize:11,cursor:"pointer"}} onClick={()=>updateStep(p.id,step.id,{status:step.status==="paused"?"pending":"paused"})}>{step.status==="paused"?"▶":"⏸"}</button>
+                        <button style={{background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.25)",borderRadius:8,color:"#ff4444",padding:"5px 8px",fontSize:11,cursor:"pointer"}} onClick={()=>deleteStep(p.id,step.id)}>✕</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:8,textAlign:"right"}}>
+                  {plan.steps.reduce((a,s)=>a+s.ml,0).toFixed(1)} ml/Tag · {doneIds.length}/{plan.steps.length} heute erledigt
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -710,10 +942,10 @@ function EinstellungenTab({aquarium,session,params,setParams,onUpdateAquarium}) 
 
 // ─── AQUARIUM APP ─────────────────────────────────────────────────────────────
 const AQ_TABS=[
-  {id:"messung",  label:"Messung",  icon:"📊"},
-  {id:"besatz",   label:"Besatz",   icon:"🪸"},
-  {id:"verlauf",  label:"Verlauf",  icon:"📈"},
-  {id:"settings", label:"Einst.",   icon:"⚙️"},
+  {id:"messung",   label:"Messung",   icon:"📊"},
+  {id:"dosierung", label:"Dosierung", icon:"💊"},
+  {id:"besatz",    label:"Besatz",    icon:"🪸"},
+  {id:"settings",  label:"Einst.",    icon:"⚙️"},
 ];
 
 function AquariumApp({aquarium:initAq,session,onBack}) {
@@ -729,10 +961,10 @@ function AquariumApp({aquarium:initAq,session,onBack}) {
         <div className="top-meta">{aquarium.volume}L</div>
       </div>
       <div className="content-area">
-        {tab==="messung"  &&<MessungTab      aquarium={aquarium} session={session} params={params}/>}
-        {tab==="besatz"   &&<BesatzTab       aquarium={aquarium} session={session}/>}
-        {tab==="verlauf"  &&<VerlaufTab      aquarium={aquarium} session={session} params={params}/>}
-        {tab==="settings" &&<EinstellungenTab aquarium={aquarium} session={session} params={params} setParams={setParams} onUpdateAquarium={aq=>{setAquarium(aq);setParams(aq.params||params);}}/>}
+        {tab==="messung"   &&<MessungTab      aquarium={aquarium} session={session} params={params}/>}
+        {tab==="dosierung" &&<DosierungTab    aquarium={aquarium} session={session} params={params}/>}
+        {tab==="besatz"    &&<BesatzTab       aquarium={aquarium} session={session}/>}
+        {tab==="settings"  &&<EinstellungenTab aquarium={aquarium} session={session} params={params} setParams={setParams} onUpdateAquarium={aq=>{setAquarium(aq);setParams(aq.params||params);}}/>}
       </div>
       <nav className="tab-bar">
         {AQ_TABS.map(t=>(
@@ -961,6 +1193,13 @@ input:checked+.sw-track:before{transform:translateX(18px);background:var(--cyan)
 .empty-state{text-align:center;padding:48px 20px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:12px;}
 .empty-state div{font-size:44px;opacity:.5;}
 .empty-state p{font-size:14px;}
+.sub-tab-row{display:flex;background:rgba(0,0,0,.35);border:1.5px solid rgba(255,255,255,.12);border-radius:12px;padding:3px;gap:3px;}
+.sub-tab{flex:1;padding:10px;background:none;border:none;color:#6a8898;font-family:var(--fm);font-size:12px;font-weight:700;cursor:pointer;border-radius:9px;transition:all .2s;}
+.sub-tab-on{background:rgba(0,212,255,.18)!important;color:var(--cyan)!important;}
+.param-chip{padding:10px 14px;border-radius:12px;font-family:var(--fm);font-size:12px;font-weight:700;cursor:pointer;border:2px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#b0ccd8;transition:all .2s;display:flex;align-items:center;gap:6px;}
+.param-chip-on{border-color:var(--c,var(--cyan))!important;color:var(--c,var(--cyan))!important;background:color-mix(in srgb,var(--c,var(--cyan)) 15%,transparent)!important;}
+.pc-badge{background:var(--red);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;}
+.step-add-btn{background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;color:var(--cyan);font-family:var(--fm);font-size:11px;font-weight:700;padding:5px 11px;cursor:pointer;}
 .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.15);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 ::-webkit-scrollbar{width:0;height:0;}
