@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="38" fill="#030d12"/>
+  <polygon points="96,28 148,58 148,118 96,148 44,118 44,58" fill="none" stroke="#00d4ff" stroke-width="4" opacity="0.8"/>
+  <polygon points="96,46 132,66 132,108 96,128 60,108 60,66" fill="#00d4ff" opacity="0.08"/>
+  <text x="96" y="105" text-anchor="middle" font-size="58" font-family="serif">⬡</text>
+  <text x="96" y="168" text-anchor="middle" font-size="14" fill="#00d4ff" font-family="monospace" font-weight="bold" letter-spacing="2">AQUA</text>
+</svg>
