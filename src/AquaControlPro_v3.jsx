@@ -140,7 +140,7 @@ Antworte NUR mit JSON ohne Markdown:
   try {
     const r = await fetch("/.netlify/functions/claude", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ model:"claude-sonnet-4-5-20251001", max_tokens:1200, messages:[{role:"user",content:prompt}] }),
+      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1200, messages:[{role:"user",content:prompt}] }),
     });
     const d = await r.json();
     const txt = (d.content||[]).map(c=>c.text||"").join("").replace(/```json|```/g,"").trim();
@@ -1130,7 +1130,7 @@ Wichtig:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5-20251001",
+        model: "claude-sonnet-4-6",
         max_tokens: 1000,
         messages: [{
           role: "user",
@@ -1395,7 +1395,7 @@ async function fetchWaterRecommendation(besatzList) {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        model:"claude-sonnet-4-5-20251001",
+        model:"claude-sonnet-4-6",
         max_tokens:1200,
         system:"Du bist ein Meerwasseraquaristik-Experte. Antworte ausschließlich mit validem JSON, ohne Markdown-Formatierung, ohne Erklärungen davor oder danach.",
         messages:[{
