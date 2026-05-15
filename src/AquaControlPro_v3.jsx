@@ -848,6 +848,136 @@ function BesatzTab({aquarium,session}) {
   );
 }
 
+// ─── SALIFERT EDITOR ─────────────────────────────────────────────────────────
+function SalifertEditor({param, updateParam}) {
+  const [newMl, setNewMl] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const table = param.salifert || [];
+
+  const addRow = () => {
+    const ml = parseFloat(newMl), val = parseFloat(newVal);
+    if (isNaN(ml) || isNaN(val)) return;
+    const exists = table.find(r => r.ml === ml);
+    if (exists) {
+      updateParam("salifert")(table.map(r => r.ml===ml ? {ml,value:val} : r));
+    } else {
+      updateParam("salifert")([...table, {ml,value:val}].sort((a,b)=>a.ml-b.ml));
+    }
+    setNewMl(""); setNewVal("");
+  };
+
+  const removeRow = (ml) => {
+    updateParam("salifert")(table.filter(r => r.ml !== ml));
+  };
+
+  const importSalifertKH = () => {
+    updateParam("salifert")([
+      {ml:0.00,value:15.7},{ml:0.02,value:15.3},{ml:0.04,value:15.0},{ml:0.06,value:14.7},
+      {ml:0.08,value:14.4},{ml:0.10,value:14.1},{ml:0.12,value:13.7},{ml:0.14,value:13.4},
+      {ml:0.16,value:13.1},{ml:0.18,value:12.8},{ml:0.20,value:12.5},{ml:0.22,value:12.1},
+      {ml:0.24,value:11.8},{ml:0.26,value:11.5},{ml:0.28,value:11.2},{ml:0.30,value:10.9},
+      {ml:0.32,value:10.5},{ml:0.34,value:10.2},{ml:0.36,value:9.9},{ml:0.38,value:9.6},
+      {ml:0.40,value:9.3},{ml:0.42,value:8.9},{ml:0.44,value:8.6},{ml:0.46,value:8.3},
+      {ml:0.48,value:8.0},{ml:0.50,value:7.7},{ml:0.52,value:7.4},{ml:0.54,value:7.0},
+      {ml:0.56,value:6.7},{ml:0.58,value:6.4},{ml:0.60,value:6.1},{ml:0.62,value:5.7},
+      {ml:0.64,value:5.4},{ml:0.66,value:5.1},{ml:0.68,value:4.8},{ml:0.70,value:4.5},
+      {ml:0.72,value:4.1},{ml:0.74,value:3.8},{ml:0.76,value:3.5},{ml:0.78,value:3.2},
+      {ml:0.80,value:2.9},{ml:0.82,value:2.5},{ml:0.84,value:2.2},{ml:0.86,value:1.9},
+      {ml:0.88,value:1.6},{ml:0.90,value:1.2},{ml:0.92,value:0.9},{ml:0.94,value:0.6},
+      {ml:0.96,value:0.3},{ml:0.98,value:0.0},
+    ]);
+  };
+
+  const sorted = [...table].sort((a,b)=>a.ml-b.ml);
+
+  return (
+    <Card>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <Sect color={param.color}>💉 Testkit-Umrechnung (Salifert)</Sect>
+        <button
+          style={{background:"none",border:"none",color:"var(--cyan)",fontFamily:"var(--fm)",fontSize:11,cursor:"pointer"}}
+          onClick={()=>setExpanded(e=>!e)}
+        >{expanded?"▲ Einklappen":"▼ Ausklappen"} ({table.length} Werte)</button>
+      </div>
+
+      <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.6}}>
+        Hinterlege für jeden ml-Stand der Spritze den entsprechenden Messwert in {param.unit}. 
+        Beim Messen wird der Wert dann automatisch interpoliert.
+      </div>
+
+      {/* Salifert KH Schnellimport */}
+      {param.id==="KH"&&(
+        <button
+          style={{background:"rgba(0,212,255,.1)",border:"1px solid rgba(0,212,255,.25)",borderRadius:10,color:"var(--cyan)",fontFamily:"var(--fm)",fontSize:12,fontWeight:700,padding:"10px 14px",cursor:"pointer",width:"100%"}}
+          onClick={importSalifertKH}
+        >⬇ Salifert KH Tabelle importieren (Standard)</button>
+      )}
+
+      {/* Neue Zeile hinzufügen */}
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <div className="af" style={{flex:1}}>
+          <label>ml-Stand Spritze</label>
+          <input className="sett-inp" type="number" step="0.02" placeholder="0.40" value={newMl} onChange={e=>setNewMl(e.target.value)}/>
+        </div>
+        <div className="af" style={{flex:1}}>
+          <label>= Wert ({param.unit})</label>
+          <input className="sett-inp" type="number" step="0.1" placeholder="9.3" value={newVal} onChange={e=>setNewVal(e.target.value)}/>
+        </div>
+        <button
+          style={{background:param.color,border:"none",borderRadius:10,color:"#000",fontFamily:"var(--fm)",fontSize:13,fontWeight:700,padding:"12px 16px",cursor:"pointer",flexShrink:0}}
+          onClick={addRow}
+        >+ Eintrag</button>
+      </div>
+
+      {/* Tabelle anzeigen */}
+      {table.length > 0 && (
+        <>
+          {/* Mini Vorschau – immer sichtbar */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {sorted.slice(0,6).map(r=>(
+              <div key={r.ml} style={{background:"rgba(0,0,0,.3)",borderRadius:8,padding:"4px 10px",fontSize:11,fontFamily:"var(--fm)"}}>
+                <span style={{color:"var(--muted)"}}>{r.ml.toFixed(2)}ml</span>
+                <span style={{color:param.color}}> → {r.value}</span>
+              </div>
+            ))}
+            {sorted.length > 6 && <span style={{fontSize:11,color:"var(--muted)",padding:"4px 6px"}}>+{sorted.length-6} weitere</span>}
+          </div>
+
+          {/* Vollständige Tabelle ausklappbar */}
+          {expanded && (
+            <div className="salifert-table">
+              <div className="salifert-table-hdr">
+                <span>ml-Stand</span><span>= {param.unit}</span><span/>
+              </div>
+              {sorted.map(r=>(
+                <div key={r.ml} className="salifert-table-row">
+                  <span style={{fontFamily:"var(--fm)",fontSize:13}}>{r.ml.toFixed(2)} ml</span>
+                  <span style={{fontFamily:"var(--fm)",fontSize:13,color:param.color}}>→ {r.value} {param.unit}</span>
+                  <button
+                    style={{background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.25)",borderRadius:6,color:"#ff4444",fontSize:11,padding:"3px 8px",cursor:"pointer"}}
+                    onClick={()=>removeRow(r.ml)}
+                  >✕</button>
+                </div>
+              ))}
+              <button
+                style={{background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.2)",borderRadius:10,color:"#ff4444",fontFamily:"var(--fm)",fontSize:11,fontWeight:700,padding:"8px",cursor:"pointer",width:"100%",marginTop:4}}
+                onClick={()=>updateParam("salifert")([])}
+              >Alle Einträge löschen</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {table.length===0&&(
+        <div style={{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"8px 0"}}>
+          Noch keine Einträge – füge ml-Werte manuell hinzu oder importiere die Salifert-Tabelle
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── EINSTELLUNGEN ────────────────────────────────────────────────────────────
 function EinstellungenTab({aquarium,session,params,setParams,onUpdateAquarium}) {
   const [loc,setLoc]=useState({name:aquarium.name,volume:aquarium.volume||300,esp_ip:aquarium.esp_ip||"192.168.1.100",ml_per_ms:aquarium.ml_per_ms||0.01667,ha_url:aquarium.ha_url||"",ha_token:aquarium.ha_token||""});
@@ -925,6 +1055,8 @@ function EinstellungenTab({aquarium,session,params,setParams,onUpdateAquarium}) 
               <div className="af" style={{flex:1}}><label>Bis</label><select className="sett-inp" value={param.doseTo} onChange={e=>up("doseTo")(+e.target.value)}>{hours.map(h=><option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}</select></div>
             </div>
           </Card>
+
+          <SalifertEditor param={param} updateParam={up}/>
         </>}
         <Btn color="#00d4ff" onClick={saveParams}>{msg||"Parameter speichern"}</Btn>
       </>}
@@ -1200,6 +1332,9 @@ input:checked+.sw-track:before{transform:translateX(18px);background:var(--cyan)
 .param-chip-on{border-color:var(--c,var(--cyan))!important;color:var(--c,var(--cyan))!important;background:color-mix(in srgb,var(--c,var(--cyan)) 15%,transparent)!important;}
 .pc-badge{background:var(--red);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;}
 .step-add-btn{background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;color:var(--cyan);font-family:var(--fm);font-size:11px;font-weight:700;padding:5px 11px;cursor:pointer;}
+.salifert-table{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:8px;}
+.salifert-table-hdr{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;padding:4px 6px;font-size:10px;color:var(--muted);font-family:var(--fm);text-transform:uppercase;letter-spacing:.06em;}
+.salifert-table-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;padding:6px 8px;background:rgba(0,0,0,.2);border-radius:8px;}
 .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.15);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 ::-webkit-scrollbar{width:0;height:0;}
